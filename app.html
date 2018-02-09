@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  />
+  <title>App 历史版本查询 - 在线工具</title>
+  <link href="https://cdn.bootcss.com/bulma/0.6.2/css/bulma.min.css" rel="stylesheet">
+  <script src="https://cdn.bootcss.com/vue/2.5.13/vue.min.js"></script>
+  <script src="https://cdn.bootcss.com/axios/0.17.1/axios.min.js"></script>
+  <script src="https://cdn.bootcss.com/sweetalert/1.1.3/sweetalert-dev.min.js"></script>
+  <style>
+    *{margin:0;padding:0}
+    *:focus{outline:none}
+    [v-cloak]{display:none}
+    .table tr.is-selected{background-color:#409eff}
+    .app-history{margin-top:50px}
+    .app-history .search-bar .search-btn{min-width:120px}
+    .app-history .table-list{margin-top:30px;min-height:450px}
+    .app-history .table-list table{table-layout:fixed;border:1px solid #ccc}
+    .app-history .table-list .table-app tr{cursor:pointer}
+    .app-history .table-list tr td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+    .app-history .table-list tr .app-name img{width:40px;height:40px;vertical-align:middle;border-radius:5px}
+  </style>
+</head>
+<body>
+  <!-- 历史 -->
+  <div class="app-history" id="app" v-cloak>
+    <div class="search-bar">
+      <div class="container">
+        <div class="field has-addons">
+          <div class="control is-expanded">
+            <input class="input is-large" type="text" placeholder="应用名称" v-model.trim="input" @keyup.enter="search">
+          </div>
+          <div class="control">
+            <a class="button is-info is-large search-btn" href="javascript:void(0)" @click="search">搜 索</a>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- 列表 -->
+    <div class="table-list">
+      <div class="container">
+        <div class="columns">
+          <div class="column is-8">
+            <table class="table is-fullwidth is-striped is-hoverable table-app">
+              <thead>
+                <tr>
+                  <th>应用名称</th>
+                  <th width="120px">最新版本</th>
+                  <th width="100px">大小/Mb</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(app, index) in apps" v-if="index < appsMaxCount" v-on:click="selectRow(app, index)" v-bind:class="{ 'is-selected': app === selectedApp }">
+                  <td class="app-name">
+                    <img alt="" v-bind:src="app.artworkUrl100" /> {{app.trackName}}
+                  </td>
+                  <!-- 版本号 -->
+                  <td>{{app.version}}</td>
+                  <!-- 大小 -->
+                  <td>{{getFileSizeMb(app.fileSizeBytes)}} MB</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="column is-4">
+            <table class="table is-fullwidth is-striped is-hoverable table-version">
+              <thead>
+                <tr>
+                  <th width="60px">NO.</th>
+                  <th>版本号</th>
+                  <th>版本ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(version, index) in versions">
+                  <td>{{index + 1}}</td>
+                  <td>{{version.bundle_version}}</td>
+                  <td>{{version.external_identifier}}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    new Vue({
+      el: "#app",
+      data: {
+        // 输入框值
+        input: "",
+        apps: [],
+        // 分页
+        appsMaxCount: 20,
+        // 版本
+        versions: [],
+        // 选中app
+        selectedApp: {},
+      },
+      methods: {
+        // 获取文件大小
+        getFileSizeMb: function (bytes) {
+          bytes = parseFloat(bytes);
+          var m = (bytes / 1024 / 1024).toFixed(2);
+          return m;
+        },
+        // 搜索
+        search: function () {
+          var _this = this;
+          var input = _this.input;
+          // 获取应用名称
+          axios.get('https://itunes.apple.com/search', {
+            params: {
+              country: 'CN',
+              media: 'software',
+              entity: 'software,iPadSoftware',
+              offset: 0,
+              term: input
+            }
+          }).then(function (res) {
+            _this.apps = res.data.results;
+            _this.versions = [];
+            if (_this.apps.length) {
+              // 默认选中第一项
+              _this.selectedApp = _this.apps[0];
+              _this.getHistoryVersion(_this.selectedApp);
+            }
+          }).catch(function (error) {
+            // 出错
+            _this.showError(error);
+          });
+        },
+        // 选择行
+        selectRow: function (app, index) {
+          if (this.selectedApp === app) {
+            return;
+          }
+          this.selectedApp = app;
+          this.getHistoryVersion(app);
+        },
+        // 获取历史版本信息
+        getHistoryVersion: function (app) {
+          _this = this;
+          var appId = app.trackId;
+          var url = 'https://api.unlimapps.com/v1/apple_apps/{appId}/versions'.replace(/{appId}/g, appId);
+          axios.get(url)
+            .then(function (res) {
+              var result = res.data;
+              // 版本排序
+              result.sort(function (r1, r2) {
+                var v1 = r1.bundle_version.split('.');
+                var v2 = r2.bundle_version.split('.');
+                var compareRes = 0;
+                for (var i = 0; i < v1.length; i++) {
+                  var n1 = parseInt(v1[i]);
+                  if (v2.length > i) {
+                    var n2 = parseInt(v2[i]);
+                    if (n1 === n2) {
+                      continue;
+                    }
+                    compareRes = n2 - n1;
+                    break;
+                  } else {
+                    compareRes = -1;
+                    break;
+                  }
+                }
+                return compareRes;
+              });
+              _this.versions = result;
+            })
+            .catch(function (error) {
+              _this.showError(error);
+            });
+        },
+        // 出错提示
+        showError: function (error) {
+          swal({
+            title: "出错啦！",
+            text: error.toString(),
+            icon: "error",
+            button: "知道了"
+          });
+        },
+      }
+    });
+  </script>
+</body>
+
+</html>
